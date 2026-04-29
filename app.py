@@ -1,27 +1,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import re
 
-# 1. MAPEAMENTO DE LIVROS E PALAVRAS-CHAVE (Melhorado)
-MAPA_TEMATICO = {
-    "Gênesis": ["Criação", "Adão", "Eva", "Caim", "Abel", "Noé", "Arca", "Dilúvio", "Babel", "Abraão", "Isaque", "Jacó", "José do Egito", "Sonhos de José"],
-    "Êxodo": ["Moisés", "Pragas", "Mar Vermelho", "Egito", "Mandamentos", "Tabernáculo", "Bezalel"],
-    "Juízes": ["Sansão", "Gideão", "Débora", "Dalila", "Baraque"],
-    "1 Samuel": ["Davi", "Golias", "Samuel", "Saul", "Jônatas"],
-    "2 Samuel": ["Bate-Seba", "Absalão"],
-    "1 Reis": ["Salomão", "Elias", "Rainha de Sabá"],
-    "2 Reis": ["Eliseu", "Naamã", "Jezabel"],
-    "Daniel": ["Cova", "Leões", "Fornalha", "Nabucodonosor", "Sadraque", "Mesaque", "Abednego"],
-    "Mateus": ["Sermão do Monte", "Beatitudes", "Magos", "Estrela de Belém"],
-    "Marcos": ["Tempestade", "Cego de Jericó"],
-    "Lucas": ["Zaqueu", "Bom Samaritano", "Filho Pródigo", "Marta", "Maria", "Nascimento de Jesus", "Anunciação"],
-    "João": ["Nicodemos", "Samaritana", "Lázaro", "Canaã", "Bodas"],
-    "Atos": ["Pentecostes", "Damasco", "Paulo", "Estêvão", "Cornélio"],
-    "Ester": ["Hamã", "Mordecai", "Rei Assuero"],
-    "Jonas": ["Peixe", "Nínive"]
-}
-
+# --- CONFIGURAÇÕES E MAPEAMENTO ---
 LIVROS_BIBLIA = [
     "Gênesis", "Êxodo", "Levítico", "Números", "Deuteronômio", "Josué", "Juízes", "Rute",
     "1 Samuel", "2 Samuel", "1 Reis", "2 Reis", "1 Crônicas", "2 Crônicas", "Esdras", "Neemias", "Ester",
@@ -33,32 +16,25 @@ LIVROS_BIBLIA = [
 ]
 
 MESES_PT = {
-    1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
-    5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
-    9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+    1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai", 6: "Jun",
+    7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez"
 }
 
 def identificar_livro(texto):
     if not isinstance(texto, str) or texto == "": return "Outros / Temas Gerais"
     t = texto.upper().replace("I ", "1 ").replace("II ", "2 ")
-    
-    # 1. Busca direta por nome do livro
     for livro in LIVROS_BIBLIA:
         if re.search(r'\b' + re.escape(livro.upper()) + r'\b', t):
             return livro
-            
-    # 2. Busca por temas/personagens
-    for livro, palavras in MAPA_TEMATICO.items():
-        for p in palavras:
-            if p.upper() in t:
-                return livro
-                
     return "Outros / Temas Gerais"
 
-st.set_page_config(page_title="Relatórios EBI", layout="wide")
-st.title("📊 Painel de Controle EBI - Relatórios Locais")
+st.set_page_config(page_title="Dashboard EBI Profissional", layout="wide")
 
-arquivo = st.file_uploader("Suba sua planilha Excel", type=["xlsx", "csv"])
+# --- CABEÇALHO ---
+st.title("📊 Relatório de Gestão EBI")
+st.markdown("### Dashboard com Linha do Tempo e Médias de Frequência")
+
+arquivo = st.file_uploader("Carregue sua planilha (Excel ou CSV)", type=["xlsx", "csv"])
 
 if arquivo:
     df = pd.read_csv(arquivo) if arquivo.name.endswith('csv') else pd.read_excel(arquivo)
@@ -67,62 +43,84 @@ if arquivo:
     df['Data'] = pd.to_datetime(df['Data'], errors='coerce')
     df = df.dropna(subset=['Data']).sort_values('Data')
     
+    # Colunas de Tempo
     df['Ano'] = df['Data'].dt.year
     df['Mes_Num'] = df['Data'].dt.month
-    df['Mes_Nome'] = df['Mes_Num'].map(MESES_PT)
+    df['Mes_Ano'] = df['Data'].dt.strftime('%Y-%m') # Ex: 2024-02
     df['Livro'] = df['História Contada'].apply(identificar_livro)
 
-    # Filtros Laterais
-    st.sidebar.header("Filtros de Navegação")
+    # --- FILTRO DE LINHA DO TEMPO (ESTILO EXCEL) ---
+    st.write("---")
+    periodos_disponiveis = sorted(df['Mes_Ano'].unique())
     
-    # Filtro de Ano
-    anos = sorted(df['Ano'].unique())
-    ano_sel = st.sidebar.multiselect("Anos", anos, default=anos)
-    
-    # Filtro de Localidade
-    locais = ["Geral"] + sorted(df['Comum Congregação'].fillna("Não Informado").unique().tolist())
-    loc_sel = st.sidebar.selectbox("Localidade", locais)
+    st.subheader("📅 Seleção de Período (Linha do Tempo)")
+    if len(periodos_disponiveis) > 1:
+        inicio, fim = st.select_slider(
+            "Arraste para selecionar o intervalo de meses e anos:",
+            options=periodos_disponiveis,
+            value=(periodos_disponiveis[0], periodos_disponiveis[-1])
+        )
+        df_f = df[(df['Mes_Ano'] >= inicio) & (df['Mes_Ano'] <= fim)]
+    else:
+        df_f = df
 
-    # Aplicação dos Filtros
-    df_f = df[df['Ano'].isin(ano_sel)]
+    # Filtro de Localidade na Sidebar
+    locais = ["Geral"] + sorted(df['Comum Congregação'].fillna("Não Informado").unique().tolist())
+    loc_sel = st.sidebar.selectbox("Filtro por Casa de Oração", locais)
     if loc_sel != "Geral":
         df_f = df_f[df_f['Comum Congregação'] == loc_sel]
 
-    # --- DASHBOARD VISUAL ---
+    # --- MÉTRICAS E MÉDIAS ---
+    st.write("---")
     
-    # 1. Gráfico de Barras por Mês (Ordem Crescente)
-    st.subheader("📈 Frequência Mensal de Lições")
-    freq_mensal = df_f.groupby(['Mes_Num', 'Mes_Nome']).size().reset_index(name='Total')
-    # Garantir ordem de Janeiro a Dezembro
-    freq_mensal = freq_mensal.sort_values('Mes_Num')
+    # Cálculo das Médias
+    # Frequência mensal média dentro do período selecionado
+    freq_mensal_base = df_f.groupby('Mes_Ano').size()
+    media_mensal = freq_mensal_base.mean() if not freq_mensal_base.empty else 0
     
-    fig_barras = px.bar(freq_mensal, x='Mes_Nome', y='Total', 
-                        text='Total', color_discrete_sequence=['#3498db'],
-                        labels={'Mes_Nome': 'Mês', 'Total': 'Quantidade de Histórias'})
+    # Frequência anual média
+    freq_anual_base = df_f.groupby('Ano').size()
+    media_anual = freq_anual_base.mean() if not freq_anual_base.empty else 0
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total de Lições", len(df_f))
+    col2.metric("Média Mensal", f"{media_mensal:.1f}")
+    col3.metric("Média Anual", f"{media_anual:.1f}")
+    col4.metric("Livro + Lido", df_f['Livro'].mode()[0] if not df_f.empty else "-")
+
+    # --- GRÁFICOS ---
+    st.write("---")
+    
+    # 1. Gráfico de Barras com Linha de Média
+    st.subheader("📈 Frequência por Mês vs Média do Período")
+    
+    # Preparar dados do gráfico
+    resumo_mensal = df_f.groupby(['Mes_Ano']).size().reset_index(name='Total')
+    
+    fig_barras = go.Figure()
+    # Barras
+    fig_barras.add_trace(go.Bar(
+        x=resumo_mensal['Mes_Ano'], y=resumo_mensal['Total'],
+        name='Lições no Mês', marker_color='#3498db'
+    ))
+    # Linha de Média Mensal
+    fig_barras.add_trace(go.Scatter(
+        x=resumo_mensal['Mes_Ano'], y=[media_mensal]*len(resumo_mensal),
+        mode='lines', name='Média Mensal', line=dict(color='red', dash='dash')
+    ))
+    
+    fig_barras.update_layout(xaxis_title="Mês/Ano", yaxis_title="Quantidade")
     st.plotly_chart(fig_barras, use_container_width=True)
 
-    # 2. Linha do Tempo e Livros
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("⏳ Linha do Tempo (Evolução)")
-        # Mostra o acumulado por dia para ver o intervalo
-        timeline_data = df_f.groupby(df_f['Data'].dt.date).size().reset_index(name='Contagem')
-        fig_line = px.line(timeline_data, x='Data', y='Contagem', title="Atividades ao longo do tempo")
-        st.plotly_chart(fig_line, use_container_width=True)
-
-    with col2:
-        st.subheader("📖 Cobertura Bíblica (%)")
-        fig_pizza = px.pie(df_f, names='Livro', hole=0.3, color_discrete_sequence=px.colors.qualitative.Safe)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("📚 Distribuição por Livro")
+        fig_pizza = px.pie(df_f, names='Livro', hole=0.3)
         st.plotly_chart(fig_pizza, use_container_width=True)
-
-    # 3. Tabela de Conferência
-    st.subheader("📋 Lista Detalhada do Período")
-    st.dataframe(df_f[['Data', 'Comum Congregação', 'Livro', 'História Contada']], use_container_width=True)
-
-    # Botão de Exportação (Dica)
-    st.sidebar.markdown("---")
-    st.sidebar.write("💡 Para salvar o relatório, clique com o botão direito nos gráficos ou use o comando de imprimir do seu navegador (Ctrl+P).")
+    
+    with c2:
+        st.subheader("📋 Últimos Registros Filtrados")
+        st.dataframe(df_f[['Data', 'Comum Congregação', 'Livro', 'História Contada']].tail(10), use_container_width=True)
 
 else:
-    st.info("Aguardando upload da planilha para gerar as análises...")
+    st.info("👋 Bem-vindo! Por favor, carregue sua planilha Excel para visualizar a linha do tempo e as médias.")
