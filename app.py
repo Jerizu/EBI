@@ -15,43 +15,76 @@ LIVROS_66 = [
 ]
 
 def identificar_livro(texto):
-    if not isinstance(texto, str): return "Não identificado"
+    if not isinstance(texto, str): return "Livro não identificado"
+    # Padroniza numerais romanos e espaços
     t = texto.upper().replace("I ", "1 ").replace("II ", "2 ").replace("III ", "3 ")
     for livro in LIVROS_66:
         if livro.upper() in t:
             return livro
     return "Livro não especificado"
 
-st.set_page_config(page_title="Relatórios - Casa de Oração", layout="wide")
+st.set_page_config(page_title="Relatórios - EBI", layout="wide")
 st.title("📊 Sistema de Relatórios Bíblicos")
 
-arquivo = st.file_uploader("Arraste aqui o seu arquivo do Excel", type=["xlsx", "csv"])
+arquivo = st.file_uploader("Arraste aqui o seu arquivo do Excel ou CSV", type=["xlsx", "csv"])
 
 if arquivo:
-    df = pd.read_csv(arquivo) if arquivo.name.endswith('csv') else pd.read_excel(arquivo)
-    df['Livro'] = df['História Contada'].apply(identificar_livro)
-    
-    # Menu Lateral Simples
-    st.sidebar.header("Configurações do Relatório")
-    localidades = ["Geral (Todas as Congregações)"] + sorted(df['Comum Congregação'].unique().tolist())
-    opcao = st.sidebar.selectbox("O que deseja ver?", localidades)
-    
-    dados_finais = df if opcao == "Geral (Todas as Congregações)" else df[df['Comum Congregação'] == opcao]
-    
-    # Dashboard Visual
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Frequência por Localidade")
-        st.bar_chart(dados_finais['Comum Congregação'].value_counts())
+    try:
+        # Carregamento robusto
+        if arquivo.name.endswith('csv'):
+            df = pd.read_csv(arquivo)
+        else:
+            df = pd.read_excel(arquivo)
+
+        # Limpeza de dados críticos
+        df['Comum Congregação'] = df['Comum Congregação'].fillna('Não Informado').astype(str)
+        df['História Contada'] = df['História Contada'].fillna('').astype(str)
+        df['Livro'] = df['História Contada'].apply(identificar_livro)
         
-    with col2:
-        st.subheader("Porcentagem por Livro")
-        pizza = px.pie(dados_finais, names='Livro', hole=0.3)
-        st.plotly_chart(pizza, use_container_width=True)
+        # Sidebar - Filtros
+        st.sidebar.header("Configurações")
+        # O segredo para o erro não voltar: converter para set, depois lista, e garantir que tudo é string
+        lista_locais = sorted(list(df['Comum Congregação'].unique()))
+        localidades = ["Geral (Todas as Congregações)"] + lista_locais
+        opcao = st.sidebar.selectbox("Selecione a Localidade", localidades)
+        
+        dados_finais = df if opcao == "Geral (Todas as Congregações)" else df[df['Comum Congregação'] == opcao]
+        
+        # Dashboard Visual
+        st.subheader(f"Análise: {opcao}")
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            st.metric("Total de Histórias", len(dados_finais))
+        
+        # Gráfico de Livros (Discrimina todos os identificados)
+        st.write("---")
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            st.subheader("Frequência por Congregação")
+            st.bar_chart(dados_finais['Comum Congregação'].value_counts())
+            
+        with c2:
+            st.subheader("Distribuição por Livro lido")
+            # Agrupa por livro e conta
+            contagem_livros = dados_finais['Livro'].value_counts().reset_index()
+            contagem_livros.columns = ['Livro', 'Qtd']
+            fig = px.pie(contagem_livros, values='Qtd', names='Livro', hole=0.4)
+            st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("📖 Detalhamento de Capítulos e Histórias")
-    st.table(dados_finais[['Data', 'Comum Congregação', 'Livro', 'História Contada']].tail(10))
+        # Tabela Detalhada de Capítulos
+        st.subheader("📖 Lista de Capítulos e Histórias Registradas")
+        st.dataframe(
+            dados_finais[['Data', 'Comum Congregação', 'Livro', 'História Contada']], 
+            use_container_width=True
+        )
 
-    # Botão de Impressão
-    if st.sidebar.button("Gerar PDF para Imprimir"):
-        st.sidebar.success("PDF Gerado com Sucesso! (Verifique sua pasta de downloads)")
+        # Exportação
+        st.sidebar.markdown("---")
+        st.sidebar.info("Para salvar o relatório, utilize o botão de imprimir do navegador ou as opções de download do Streamlit.")
+
+    except Exception as e:
+        st.error(f"Erro ao processar o arquivo: {e}")
+else:
+    st.info("👋 Olá! Por favor, suba a planilha excel para gerar os gráficos e relatórios.")
